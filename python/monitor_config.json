@@ -1,0 +1,5 @@
+{
+  "rooms": ["강남물류방", "부산화물방"],
+  "poll_interval": 3,
+  "image_cache_dir": ""
+}
