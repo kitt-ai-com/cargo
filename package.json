@@ -1,0 +1,39 @@
+{
+  "name": "katalk-logistics",
+  "version": "1.0.0",
+  "description": "카톡 물류 주문 자동화 데스크탑 앱",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "dev:renderer": "webpack serve --mode development",
+    "dev:electron": "tsc -p tsconfig.json && electron .",
+    "build": "webpack --mode production && tsc -p tsconfig.json"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "better-sqlite3": "^12.6.2",
+    "electron": "^40.8.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.0",
+    "@babel/preset-react": "^7.28.5",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "babel-loader": "^10.1.0",
+    "concurrently": "^9.2.1",
+    "electron-builder": "^26.8.1",
+    "html-webpack-plugin": "^5.6.6",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "webpack": "^5.105.4",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.3"
+  }
+}
