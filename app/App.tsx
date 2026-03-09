@@ -1,17 +1,19 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { ChatRoomList } from "./components/ChatRoomList";
 import { OrderFeed } from "./components/OrderFeed";
 
 export default function App() {
+  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>카톡 물류 주문 관리</Text>
       </View>
       <View style={styles.body}>
-        <ChatRoomList />
-        <OrderFeed />
+        <ChatRoomList selectedRoom={selectedRoom} onSelectRoom={setSelectedRoom} />
+        <OrderFeed selectedRoom={selectedRoom} />
       </View>
     </View>
   );

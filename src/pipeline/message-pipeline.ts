@@ -9,6 +9,7 @@ interface IncomingMessage {
   content: string;
   content_type: string;
   image_path?: string;
+  sent_time?: string;
 }
 
 export class MessagePipeline {
@@ -56,6 +57,7 @@ export class MessagePipeline {
       sender: msg.sender,
       content_type: msg.content_type,
       raw_content: msg.content,
+      sent_time: msg.sent_time,
       image_path: msg.image_path,
     });
 

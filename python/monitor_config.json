@@ -1,4 +1,6 @@
 {
+  "mode": "notification",
+  "notification_poll_ms": 300,
   "rooms": ["kitt AI 10억방"],
   "poll_interval": 5,
   "image_cache_dir": ""

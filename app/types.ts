@@ -13,6 +13,7 @@ export interface Order {
   specialNotes: string | null;
   confidence: number;
   status: string;
+  sentTime: string;
   createdAt: string;
 }
 

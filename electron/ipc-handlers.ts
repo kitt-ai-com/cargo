@@ -27,6 +27,8 @@ export function setupIpcHandlers(mainWindow: BrowserWindow, dbPath: string) {
         sender: data.sender,
         roomName: data.room_name,
         rawContent: data.content,
+        sentTime: data.sent_time || "",
+        createdAt: new Date().toISOString(),
       };
       console.log("[IPC] Sending to frontend:", JSON.stringify(order).slice(0, 200));
       mainWindow.webContents.send("new-order", order);
@@ -64,14 +66,38 @@ export function setupIpcHandlers(mainWindow: BrowserWindow, dbPath: string) {
   bridge.start();
   console.log("[IPC] Python monitor started, isRunning:", bridge.isRunning());
 
+  // Map snake_case DB rows to camelCase for frontend
+  function mapOrder(row: any) {
+    // DB stores UTC (datetime('now')), append Z so JS converts to local time
+    const createdAt = row.created_at ? row.created_at.replace(" ", "T") + "Z" : "";
+    return {
+      orderId: row.id,
+      messageId: row.message_id,
+      sender: row.sender,
+      roomName: row.room_name,
+      rawContent: row.raw_content,
+      origin: row.origin,
+      destination: row.destination,
+      cargo: row.cargo,
+      deadline: row.deadline,
+      requestedPrice: row.requested_price,
+      vehicleType: row.vehicle_type,
+      specialNotes: row.special_notes,
+      confidence: row.confidence,
+      status: row.status,
+      sentTime: row.sent_time || "",
+      createdAt,
+    };
+  }
+
   // IPC Handlers
   ipcMain.handle("get-orders", (_event, status?: string) => {
     if (status) {
-      return db.getOrdersByStatus(status);
+      return db.getOrdersByStatus(status).map(mapOrder);
     }
     return [
-      ...db.getOrdersByStatus("READY"),
-      ...db.getOrdersByStatus("CONFIRMED"),
+      ...db.getOrdersByStatus("READY").map(mapOrder),
+      ...db.getOrdersByStatus("CONFIRMED").map(mapOrder),
     ];
   });
 

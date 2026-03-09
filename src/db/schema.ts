@@ -13,6 +13,7 @@ export const SCHEMA = `
     sender TEXT NOT NULL,
     content_type TEXT NOT NULL DEFAULT 'text',
     raw_content TEXT NOT NULL,
+    sent_time TEXT DEFAULT '',
     image_path TEXT,
     ocr_text TEXT,
     is_order INTEGER NOT NULL DEFAULT 0,

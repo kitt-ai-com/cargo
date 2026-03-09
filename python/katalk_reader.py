@@ -5,8 +5,12 @@ KakaoTalk PC app reader using clipboard-based message extraction.
 Reads chat messages by focusing the KakaoTalk chat window,
 selecting all text (Ctrl+A), copying (Ctrl+C), and parsing
 the clipboard content.
+
+Also monitors for KakaoTalk notification popups to auto-detect
+new messages without requiring chat rooms to be pre-opened.
 """
 
+import ctypes
 import hashlib
 import json
 import os
@@ -24,6 +28,8 @@ try:
 except ImportError:
     HAS_PYWINAUTO = False
 
+user32 = ctypes.windll.user32
+
 
 @dataclass
 class Message:
@@ -33,6 +39,7 @@ class Message:
     sender: str
     content: str
     content_type: str  # "text" or "image"
+    sent_time: str = ""  # e.g. "오후 2:30"
     image_path: Optional[str] = None
 
     def to_json(self) -> str:
@@ -132,7 +139,170 @@ class KatalkReader:
         }
 
     # ------------------------------------------------------------------
-    # Room reading (clipboard-based)
+    # Notification detection
+    # ------------------------------------------------------------------
+
+    def _enum_eva_windows(self) -> list[tuple[int, str, bool]]:
+        """Enumerate all EVA_Window_Dblclk windows. Returns (hwnd, title, visible)."""
+        results: list[tuple[int, str, bool]] = []
+
+        def callback(hwnd, _):
+            cls_buf = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, cls_buf, 256)
+            if cls_buf.value == "EVA_Window_Dblclk":
+                length = user32.GetWindowTextLengthW(hwnd)
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                visible = bool(user32.IsWindowVisible(hwnd))
+                results.append((int(hwnd), buf.value, visible))
+            return True
+
+        cb_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        user32.EnumWindows(cb_type(callback), 0)
+        return results
+
+    def snapshot_windows(self) -> set[int]:
+        """Take a snapshot of current EVA window handles."""
+        return {hwnd for hwnd, _, _ in self._enum_eva_windows()}
+
+    def detect_notification(self, prev_handles: set[int]) -> Optional[int]:
+        """Check if a new KakaoTalk notification popup appeared.
+
+        Returns the hwnd of the notification popup, or None.
+        Notification popups are new EVA_Window_Dblclk windows that are
+        visible and have an empty title.
+        """
+        for hwnd, title, visible in self._enum_eva_windows():
+            if hwnd not in prev_handles and visible and not title:
+                return hwnd
+        return None
+
+    def click_notification(self, hwnd: int) -> Optional[str]:
+        """Click a notification popup to open the chat room.
+
+        Returns the room name (window title) of the newly opened chat window,
+        or None if it failed.
+        """
+        import sys as _sys
+        try:
+            # Snapshot titled windows BEFORE clicking
+            before = {
+                h for h, title, vis in self._enum_eva_windows()
+                if title and vis
+            }
+
+            # Get notification window rect and click center
+            rect = ctypes.wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            cx = (rect.left + rect.right) // 2
+            cy = (rect.top + rect.bottom) // 2
+            _sys.stderr.write(f"[reader] Clicking notification at ({cx}, {cy})\n")
+            _sys.stderr.flush()
+            mouse.click(coords=(cx, cy))
+            time.sleep(1.5)
+
+            # Find NEW chat window that appeared after clicking
+            for h, title, visible in self._enum_eva_windows():
+                if visible and title and title != "\uce74\uce74\uc624\ud1a1" and h not in before:
+                    _sys.stderr.write(f"[reader] New chat window: {title}\n")
+                    _sys.stderr.flush()
+                    return title
+
+            # Fallback: maybe window was reused — find the focused/foreground one
+            fg_hwnd = user32.GetForegroundWindow()
+            length = user32.GetWindowTextLengthW(fg_hwnd)
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(fg_hwnd, buf, length + 1)
+            fg_title = buf.value
+            if fg_title and fg_title != "\uce74\uce74\uc624\ud1a1":
+                _sys.stderr.write(f"[reader] Foreground window: {fg_title}\n")
+                _sys.stderr.flush()
+                return fg_title
+        except Exception as e:
+            _sys.stderr.write(f"[reader] click_notification error: {e}\n")
+            _sys.stderr.flush()
+        return None
+
+    def get_open_chat_rooms(self) -> list[str]:
+        """Return titles of all currently open KakaoTalk chat room windows."""
+        rooms = []
+        for _, title, visible in self._enum_eva_windows():
+            if visible and title and title != "\uce74\uce74\uc624\ud1a1":
+                rooms.append(title)
+        return rooms
+
+    # ------------------------------------------------------------------
+    # Room reading by window title (exact match)
+    # ------------------------------------------------------------------
+
+    def read_room_by_title(self, window_title: str) -> list["Message"]:
+        """Read messages from a chat room using its exact window title."""
+        if not HAS_PYWINAUTO:
+            return []
+
+        messages: list[Message] = []
+        try:
+            import sys as _sys
+            from pywinauto.findwindows import find_windows
+
+            handles = find_windows(title=window_title, visible_only=False)
+            if not handles:
+                _sys.stderr.write(f"[reader] Window not found: {window_title}\n")
+                _sys.stderr.flush()
+                return []
+
+            app = Application(backend="uia").connect(handle=handles[0])
+            win = app.window(handle=handles[0])
+
+            win.set_focus()
+            time.sleep(0.5)
+
+            rect = win.rectangle()
+            h = rect.bottom - rect.top
+            cx = rect.right - 20
+            cy = rect.top + int(h * 0.4)
+            mouse.click(coords=(cx, cy))
+            time.sleep(0.3)
+
+            send_keys("^a")
+            time.sleep(0.3)
+            send_keys("^c")
+            time.sleep(0.3)
+
+            mouse.click(coords=(cx, cy))
+
+            text = self._get_clipboard_text()
+            if not text:
+                return []
+
+            raw_lines = [l.strip() for l in text.split("\n") if l.strip()]
+
+            current_hash = self._get_message_hash(raw_lines)
+            if not self._is_new_message(window_title, current_hash):
+                return []
+
+            for line in raw_lines:
+                parsed = self._parse_chat_line(line)
+                if parsed:
+                    content_type = "image" if parsed["content"] == "\uc0ac\uc9c4" else "text"
+                    messages.append(
+                        Message(
+                            room_name=window_title,
+                            sender=parsed["sender"],
+                            content=parsed["content"],
+                            content_type=content_type,
+                            sent_time=parsed["time"],
+                        )
+                    )
+        except Exception as e:
+            import sys as _sys
+            _sys.stderr.write(f"[reader] Error in read_room_by_title: {type(e).__name__}: {e}\n")
+            _sys.stderr.flush()
+
+        return messages
+
+    # ------------------------------------------------------------------
+    # Room reading (clipboard-based, regex pattern match)
     # ------------------------------------------------------------------
 
     def read_room(self, room_name: str) -> list[Message]:
@@ -211,6 +381,7 @@ class KatalkReader:
                             sender=parsed["sender"],
                             content=parsed["content"],
                             content_type=content_type,
+                            sent_time=parsed["time"],
                         )
                     )
         except Exception as e:

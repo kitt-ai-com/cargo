@@ -27,6 +27,13 @@ export function OrderCard({ order, onConfirm, onDispatch, onIgnore }: Props) {
   const confidenceColor =
     order.confidence >= 0.8 ? "#22c55e" : order.confidence >= 0.5 ? "#f59e0b" : "#ef4444";
 
+  const displayTime = order.sentTime || (order.createdAt
+    ? new Date(order.createdAt).toLocaleTimeString("ko-KR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "");
+
   const handleSave = () => {
     onConfirm(order.orderId, {
       ...fields,
@@ -38,9 +45,12 @@ export function OrderCard({ order, onConfirm, onDispatch, onIgnore }: Props) {
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.sender}>
-          {order.sender} ({order.roomName})
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sender}>
+            {order.sender} ({order.roomName})
+          </Text>
+          {displayTime ? <Text style={styles.time}>{displayTime}</Text> : null}
+        </View>
         <View style={[styles.badge, { backgroundColor: confidenceColor }]}>
           <Text style={styles.badgeText}>{Math.round(order.confidence * 100)}%</Text>
         </View>
@@ -116,6 +126,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sender: { fontSize: 14, fontWeight: "600", color: "#374151" },
+  time: { fontSize: 11, color: "#9ca3af", marginTop: 2 },
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12 },
   badgeText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   rawContent: {

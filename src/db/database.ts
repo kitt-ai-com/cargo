@@ -12,6 +12,7 @@ export interface MessageInput {
   sender: string;
   content_type?: string;
   raw_content: string;
+  sent_time?: string;
   image_path?: string;
   ocr_text?: string;
   is_order?: number;
@@ -49,6 +50,12 @@ export class Database {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.db.exec(SCHEMA);
+    // Migration: add sent_time column if missing
+    try {
+      this.db.exec("ALTER TABLE messages ADD COLUMN sent_time TEXT DEFAULT ''");
+    } catch {
+      // Column already exists
+    }
   }
 
   listTables(): string[] {
@@ -86,14 +93,15 @@ export class Database {
 
   insertMessage(input: MessageInput): number {
     const stmt = this.db.prepare(
-      `INSERT INTO messages (chat_room_id, sender, content_type, raw_content, image_path, ocr_text, is_order)
-       VALUES (@chat_room_id, @sender, @content_type, @raw_content, @image_path, @ocr_text, @is_order)`
+      `INSERT INTO messages (chat_room_id, sender, content_type, raw_content, sent_time, image_path, ocr_text, is_order)
+       VALUES (@chat_room_id, @sender, @content_type, @raw_content, @sent_time, @image_path, @ocr_text, @is_order)`
     );
     const result = stmt.run({
       chat_room_id: input.chat_room_id,
       sender: input.sender,
       content_type: input.content_type ?? "text",
       raw_content: input.raw_content,
+      sent_time: input.sent_time ?? "",
       image_path: input.image_path ?? null,
       ocr_text: input.ocr_text ?? null,
       is_order: input.is_order ?? 0,
@@ -148,6 +156,7 @@ export class Database {
            po.*,
            m.sender,
            m.raw_content,
+           m.sent_time,
            m.content_type,
            cr.room_name,
            cr.room_type

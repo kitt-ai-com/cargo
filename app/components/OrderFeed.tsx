@@ -9,8 +9,16 @@ const TABS = [
   { key: "DISPATCHED", label: "전송 완료" },
 ];
 
-export function OrderFeed() {
+interface Props {
+  selectedRoom: string | null;
+}
+
+export function OrderFeed({ selectedRoom }: Props) {
   const { orders, filter, setFilter, confirmOrder, dispatchOrder, ignoreOrder } = useOrders();
+
+  const filteredOrders = selectedRoom
+    ? orders.filter((o) => o.roomName === selectedRoom)
+    : orders;
 
   return (
     <View style={styles.container}>
@@ -29,10 +37,10 @@ export function OrderFeed() {
       </View>
 
       <ScrollView style={styles.feed}>
-        {orders.length === 0 ? (
+        {filteredOrders.length === 0 ? (
           <Text style={styles.empty}>주문이 없습니다</Text>
         ) : (
-          orders.map((order) => (
+          filteredOrders.map((order) => (
             <OrderCard
               key={order.orderId}
               order={order}
