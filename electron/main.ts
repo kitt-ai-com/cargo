@@ -1,7 +1,9 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow } from "electron";
 import path from "path";
+import { setupIpcHandlers } from "./ipc-handlers";
 
 let mainWindow: BrowserWindow | null = null;
+let cleanup: (() => void) | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -15,6 +17,10 @@ function createWindow() {
     title: "카톡 물류 주문 관리",
   });
 
+  const dbPath = path.join(app.getPath("userData"), "katalk-logistics.db");
+  const handlers = setupIpcHandlers(mainWindow, dbPath);
+  cleanup = handlers.cleanup;
+
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:3000");
   } else {
@@ -25,5 +31,6 @@ function createWindow() {
 app.whenReady().then(createWindow);
 
 app.on("window-all-closed", () => {
+  cleanup?.();
   app.quit();
 });
