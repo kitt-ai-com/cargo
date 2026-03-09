@@ -1,22 +1,25 @@
+# -*- coding: utf-8 -*-
 """
-KakaoTalk PC app reader using Windows UI Automation (pywinauto).
+KakaoTalk PC app reader using clipboard-based message extraction.
 
-Reads chat messages from the KakaoTalk desktop application by inspecting
-its UI elements. Outputs structured Message objects for downstream processing.
+Reads chat messages by focusing the KakaoTalk chat window,
+selecting all text (Ctrl+A), copying (Ctrl+C), and parsing
+the clipboard content.
 """
 
 import hashlib
 import json
 import os
 import re
+import subprocess
 import time
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-# Graceful import: allow code to load even without pywinauto installed,
-# so that data-only logic (Message, parsing, hashing) can be tested anywhere.
 try:
-    from pywinauto import Application
+    from pywinauto import Application, Desktop
+    from pywinauto.keyboard import send_keys
+    from pywinauto import mouse
     HAS_PYWINAUTO = True
 except ImportError:
     HAS_PYWINAUTO = False
@@ -37,11 +40,10 @@ class Message:
 
 
 class KatalkReader:
-    """Reads messages from the KakaoTalk PC application via UI Automation."""
+    """Reads messages from the KakaoTalk PC application via clipboard."""
 
     def __init__(self) -> None:
         self._app = None
-        self._main_window = None
         # room_name -> MD5 hash of last seen messages
         self._room_hashes: dict[str, str] = {}
 
@@ -50,18 +52,44 @@ class KatalkReader:
     # ------------------------------------------------------------------
 
     def connect(self) -> bool:
-        """Connect to the running KakaoTalk PC process.
-
-        Returns True on success, False otherwise.
-        """
+        """Check if KakaoTalk PC is running. Returns True on success."""
         if not HAS_PYWINAUTO:
             return False
         try:
-            self._app = Application(backend="uia").connect(title_re=".*카카오톡.*")
-            self._main_window = self._app.window(title_re=".*카카오톡.*")
-            return True
+            desktop = Desktop(backend="uia")
+            windows = desktop.windows()
+            for w in windows:
+                title = w.window_text()
+                if title == "\uce74\uce74\uc624\ud1a1":  # "카카오톡"
+                    return True
+            # Also check if any chat windows are open
+            for w in windows:
+                try:
+                    # KakaoTalk chat windows have EVA_Window class
+                    if w.element_info.class_name and "EVA_Window" in str(w.element_info.class_name):
+                        return True
+                except:
+                    pass
+            return False
         except Exception:
             return False
+
+    # ------------------------------------------------------------------
+    # Clipboard helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_clipboard_text() -> str:
+        """Read clipboard content via PowerShell (reliable for Korean)."""
+        try:
+            result = subprocess.run(
+                ["powershell", "-command", "Get-Clipboard"],
+                capture_output=True,
+                timeout=5,
+            )
+            return result.stdout.decode("cp949", errors="replace").strip()
+        except Exception:
+            return ""
 
     # ------------------------------------------------------------------
     # Message hashing / deduplication
@@ -75,7 +103,7 @@ class KatalkReader:
         return hashlib.md5(combined.encode("utf-8")).hexdigest()
 
     def _is_new_message(self, room_name: str, message_hash: str) -> bool:
-        """Return True if *message_hash* differs from the last seen hash for *room_name*."""
+        """Return True if message_hash differs from the last seen hash."""
         previous = self._room_hashes.get(room_name)
         if previous == message_hash:
             return False
@@ -88,14 +116,10 @@ class KatalkReader:
 
     @staticmethod
     def _parse_chat_line(raw_text: str) -> Optional[dict]:
-        """Parse a single chat line in KakaoTalk's display format.
+        r"""Parse a single KakaoTalk chat line.
 
-        Expected format examples:
-            [화주김] [오후 2:30] 역삼동에서 해운대 박스3개 35만
-            [관리자] [오전 9:00] 안녕하세요
-
-        Returns a dict with keys ``sender``, ``time``, ``content``
-        or None if the line does not match the expected pattern.
+        Format: [sender] [time] content
+        Example: [화주김] [오후 2:30] 역삼동에서 해운대 박스3개 35만
         """
         pattern = r"^\[(.+?)\]\s*\[(.+?)\]\s*(.+)$"
         match = re.match(pattern, raw_text.strip())
@@ -108,51 +132,91 @@ class KatalkReader:
         }
 
     # ------------------------------------------------------------------
-    # Room reading
+    # Room reading (clipboard-based)
     # ------------------------------------------------------------------
 
     def read_room(self, room_name: str) -> list[Message]:
-        """Read new messages from the chat room named *room_name*.
+        """Read new messages from a KakaoTalk chat room via clipboard.
 
-        Returns a (possibly empty) list of Message objects.
-        Only messages that have not been seen before (based on hash
-        comparison) are returned.
+        The chat room window must already be open.
         """
-        if not HAS_PYWINAUTO or self._app is None:
+        if not HAS_PYWINAUTO:
             return []
 
         messages: list[Message] = []
         try:
-            # Navigate to the chat room
-            chat_room = self._main_window.child_window(title=room_name, control_type="ListItem")
-            chat_room.click_input()
+            import sys as _sys
+            import re as _re
+            # Extract ASCII words for safe title matching (avoids encoding issues)
+            ascii_words = _re.findall(r'[A-Za-z0-9]+', room_name)
+            pattern = ".*".join(ascii_words) if ascii_words else room_name
+            _sys.stderr.write(f"[reader] pattern: {pattern}\n")
+            _sys.stderr.flush()
+
+            # Use Win32 API (EnumWindows) to find window handle, then wrap with UIA
+            from pywinauto.findwindows import find_windows
+            handles = find_windows(title_re=f".*{pattern}.*", visible_only=False)
+            if not handles:
+                _sys.stderr.write(f"[reader] Window not found for pattern: {pattern}\n")
+                _sys.stderr.flush()
+                return []
+
+            app = Application(backend="uia").connect(handle=handles[0])
+            win = app.window(handle=handles[0])
+            _sys.stderr.write(f"[reader] found window (handle={handles[0]})\n")
+            _sys.stderr.flush()
+
+            # Focus and click chat area
+            win.set_focus()
             time.sleep(0.5)
 
-            # Read the message list from the chat area
-            msg_list = self._main_window.child_window(control_type="List", found_index=0)
-            items = msg_list.children()
-            raw_lines = [item.window_text() for item in items if item.window_text().strip()]
+            rect = win.rectangle()
+            w = rect.right - rect.left
+            h = rect.bottom - rect.top
+            # Click near right edge (scrollbar area) to avoid hitting links
+            cx = rect.right - 20
+            cy = rect.top + int(h * 0.4)
+            mouse.click(coords=(cx, cy))
+            time.sleep(0.3)
 
-            # Check for new content via hash
+            # Select all + copy
+            send_keys("^a")
+            time.sleep(0.3)
+            send_keys("^c")
+            time.sleep(0.3)
+
+            # Deselect by clicking safe area (right edge)
+            mouse.click(coords=(cx, cy))
+
+            # Read clipboard
+            text = self._get_clipboard_text()
+            if not text:
+                return []
+
+            raw_lines = [l.strip() for l in text.split("\n") if l.strip()]
+
+            # Check for new content
             current_hash = self._get_message_hash(raw_lines)
             if not self._is_new_message(room_name, current_hash):
                 return []
 
-            # Parse each line into a Message
+            # Parse only new lines (simple: return all parsed lines)
             for line in raw_lines:
                 parsed = self._parse_chat_line(line)
                 if parsed:
+                    content_type = "image" if parsed["content"] == "\uc0ac\uc9c4" else "text"
                     messages.append(
                         Message(
                             room_name=room_name,
                             sender=parsed["sender"],
                             content=parsed["content"],
-                            content_type="text",
+                            content_type=content_type,
                         )
                     )
-        except Exception:
-            # UI element not found, window closed, etc.
-            pass
+        except Exception as e:
+            import sys as _sys
+            _sys.stderr.write(f"[reader] Error in read_room: {type(e).__name__}: {e}\n")
+            _sys.stderr.flush()
 
         return messages
 
@@ -162,7 +226,7 @@ class KatalkReader:
 
     @staticmethod
     def check_image_cache(cache_dir: str) -> list[str]:
-        """Return paths to images in *cache_dir* modified within the last 60 seconds."""
+        """Return paths to images in cache_dir modified within the last 60 seconds."""
         if not cache_dir or not os.path.isdir(cache_dir):
             return []
 

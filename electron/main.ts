@@ -1,6 +1,9 @@
 import { app, BrowserWindow } from "electron";
 import path from "path";
+import dotenv from "dotenv";
 import { setupIpcHandlers } from "./ipc-handlers";
+
+dotenv.config({ path: path.join(__dirname, "../../.env") });
 
 let mainWindow: BrowserWindow | null = null;
 let cleanup: (() => void) | null = null;

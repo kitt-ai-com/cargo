@@ -17,6 +17,10 @@ import os
 import sys
 import time
 
+# Force UTF-8 stdout on Windows (default is cp949 for Korean locale)
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 from katalk_reader import KatalkReader
 
 

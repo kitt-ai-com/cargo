@@ -14,17 +14,22 @@ export function setupIpcHandlers(mainWindow: BrowserWindow, dbPath: string) {
   const pipeline = new MessagePipeline(db, classifier, parser);
 
   // Python Monitor 시작
-  const bridge = new PythonBridge("python", path.join(__dirname, "../python"));
+  const pythonCmd = "C:\\Users\\PC\\AppData\\Local\\Programs\\Python\\Python312\\python.exe";
+  const bridge = new PythonBridge(pythonCmd, path.join(__dirname, "../../python"));
 
   bridge.on("message", async (data) => {
+    console.log("[IPC] Got message from monitor:", JSON.stringify(data).slice(0, 200));
     const result = await pipeline.processMessage(data as any);
+    console.log("[IPC] Pipeline result:", result ? "ORDER DETECTED" : "not an order");
     if (result) {
-      mainWindow.webContents.send("new-order", {
+      const order = {
         ...result,
         sender: data.sender,
         roomName: data.room_name,
         rawContent: data.content,
-      });
+      };
+      console.log("[IPC] Sending to frontend:", JSON.stringify(order).slice(0, 200));
+      mainWindow.webContents.send("new-order", order);
     }
   });
 
@@ -42,14 +47,22 @@ export function setupIpcHandlers(mainWindow: BrowserWindow, dbPath: string) {
   });
 
   bridge.on("status", (data) => {
+    console.log("[IPC] Monitor status:", JSON.stringify(data));
     mainWindow.webContents.send("monitor-status", data);
   });
 
   bridge.on("error", (data) => {
+    console.log("[IPC] Monitor error:", JSON.stringify(data));
     mainWindow.webContents.send("monitor-error", data);
   });
 
+  bridge.on("exit", (data) => {
+    console.log("[IPC] Monitor process exited:", JSON.stringify(data));
+  });
+
+  console.log("[IPC] Starting Python monitor...");
   bridge.start();
+  console.log("[IPC] Python monitor started, isRunning:", bridge.isRunning());
 
   // IPC Handlers
   ipcMain.handle("get-orders", (_event, status?: string) => {

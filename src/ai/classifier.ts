@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { CLASSIFY_PROMPT } from "./prompts";
 
+function extractJson(text: string): string {
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  return match ? match[1].trim() : text.trim();
+}
+
 export class ClassifierService {
   private client: Anthropic;
 
@@ -21,7 +26,7 @@ export class ClassifierService {
       return false;
     }
 
-    const result = JSON.parse(textBlock.text);
+    const result = JSON.parse(extractJson(textBlock.text));
     return result.isOrder === true;
   }
 
@@ -55,7 +60,7 @@ export class ClassifierService {
       return false;
     }
 
-    const result = JSON.parse(textBlock.text);
+    const result = JSON.parse(extractJson(textBlock.text));
     return result.isOrder === true;
   }
 }

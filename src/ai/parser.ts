@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { PARSE_PROMPT } from "./prompts";
 
+function extractJson(text: string): string {
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  return match ? match[1].trim() : text.trim();
+}
+
 export interface ParsedOrder {
   origin: string | null;
   destination: string | null;
@@ -32,7 +37,7 @@ export class ParserService {
       throw new Error("Unexpected response type from AI");
     }
 
-    return JSON.parse(textBlock.text) as ParsedOrder;
+    return JSON.parse(extractJson(textBlock.text)) as ParsedOrder;
   }
 
   async parseImage(
@@ -65,6 +70,6 @@ export class ParserService {
       throw new Error("Unexpected response type from AI");
     }
 
-    return JSON.parse(textBlock.text) as ParsedOrder;
+    return JSON.parse(extractJson(textBlock.text)) as ParsedOrder;
   }
 }

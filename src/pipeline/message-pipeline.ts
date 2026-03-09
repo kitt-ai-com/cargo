@@ -48,6 +48,7 @@ export class MessagePipeline {
   async processMessage(
     msg: IncomingMessage
   ): Promise<(ParsedOrder & { orderId: number; messageId: number }) | null> {
+    try {
     const roomId = this.getOrCreateRoomId(msg.room_name);
 
     const messageId = this.db.insertMessage({
@@ -106,5 +107,9 @@ export class MessagePipeline {
     });
 
     return { ...parsed, orderId, messageId };
+    } catch (err) {
+      console.error("[Pipeline] Error processing message:", err);
+      return null;
+    }
   }
 }

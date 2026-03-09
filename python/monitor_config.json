@@ -1,5 +1,5 @@
 {
-  "rooms": ["강남물류방", "부산화물방"],
-  "poll_interval": 3,
+  "rooms": ["kitt AI 10억방"],
+  "poll_interval": 5,
   "image_cache_dir": ""
 }
