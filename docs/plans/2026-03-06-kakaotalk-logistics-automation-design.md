@@ -82,7 +82,8 @@
 | AI 파싱 | **Claude Sonnet** | 한글 정확도 높음, 정밀 파싱 |
 | AI OCR | **Claude Vision** | 이미지 내 한글 텍스트 인식 정확도 |
 | DB | **SQLite** | 로컬 앱에 적합, 설치 불필요 |
-| 배차 연동 | **Playwright** (웹 자동화) / REST API | 배차 앱 상황에 따라 선택 |
+| 배차 연동 | **Playwright** (웹 자동화) / REST API | 배차 앱 상황에 따라 선택 
+|
 
 ---
 

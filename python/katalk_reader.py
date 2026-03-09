@@ -16,6 +16,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from typing import Optional
@@ -97,6 +98,84 @@ class KatalkReader:
             return result.stdout.decode("cp949", errors="replace").strip()
         except Exception:
             return ""
+
+    # ------------------------------------------------------------------
+    # Clipboard image helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _grab_clipboard_image(save_dir: str = "") -> Optional[str]:
+        """Read image from Windows clipboard and save as PNG. Returns path or None."""
+        try:
+            from PIL import ImageGrab
+            img = ImageGrab.grabclipboard()
+            if img is None:
+                return None
+            if not save_dir:
+                save_dir = os.path.join(tempfile.gettempdir(), "katalk_images")
+            os.makedirs(save_dir, exist_ok=True)
+            filepath = os.path.join(save_dir, f"katalk_{int(time.time() * 1000)}.png")
+            img.save(filepath, "PNG")
+            return filepath
+        except Exception:
+            return None
+
+    def _try_copy_chat_image(self, win, save_dir: str = "", msgs_after_image: int = 0) -> Optional[str]:
+        """Click an image in chat to open viewer, Ctrl+C, save from clipboard.
+
+        msgs_after_image: how many text messages appear after the target image.
+        Used to estimate vertical click offset (each text msg ~30px).
+        """
+        import sys as _sys
+        try:
+            rect = win.rectangle()
+            w = rect.right - rect.left
+            h = rect.bottom - rect.top
+
+            # Scroll to bottom
+            send_keys("{END}")
+            time.sleep(0.3)
+
+            # Chat area: top ~10% is header, bottom ~20% is input box
+            # Last message sits just above input box
+            chat_bottom = rect.bottom - int(h * 0.22)
+            # Offset upward for messages that come after the image (~35px per msg)
+            offset_up = msgs_after_image * 35
+            cx = rect.left + w // 2
+            cy = chat_bottom - offset_up
+
+            # Clamp to reasonable range (don't click above chat area)
+            chat_top = rect.top + int(h * 0.10)
+            cy = max(cy, chat_top)
+
+            _sys.stderr.write(f"[reader] Clicking image at ({cx}, {cy}), msgs_after={msgs_after_image}\n")
+            _sys.stderr.flush()
+
+            # Click opens image viewer in KakaoTalk
+            mouse.click(coords=(cx, cy))
+            time.sleep(1.5)
+
+            # Copy image in viewer
+            send_keys("^c")
+            time.sleep(0.5)
+
+            img_path = self._grab_clipboard_image(save_dir)
+
+            # Close viewer (Esc)
+            send_keys("{ESC}")
+            time.sleep(0.3)
+
+            if img_path:
+                _sys.stderr.write(f"[reader] Image saved: {img_path}\n")
+            else:
+                _sys.stderr.write(f"[reader] No image in clipboard\n")
+            _sys.stderr.flush()
+
+            return img_path
+        except Exception as e:
+            _sys.stderr.write(f"[reader] _try_copy_chat_image error: {e}\n")
+            _sys.stderr.flush()
+            return None
 
     # ------------------------------------------------------------------
     # Message hashing / deduplication
@@ -235,7 +314,7 @@ class KatalkReader:
     # Room reading by window title (exact match)
     # ------------------------------------------------------------------
 
-    def read_room_by_title(self, window_title: str) -> list["Message"]:
+    def read_room_by_title(self, window_title: str, image_save_dir: str = "") -> list["Message"]:
         """Read messages from a chat room using its exact window title."""
         if not HAS_PYWINAUTO:
             return []
@@ -294,6 +373,22 @@ class KatalkReader:
                             sent_time=parsed["time"],
                         )
                     )
+
+            # Find the last image message and try to copy it from chat
+            last_img_idx = None
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i].content_type == "image":
+                    last_img_idx = i
+                    break
+
+            if last_img_idx is not None:
+                msgs_after = len(messages) - 1 - last_img_idx
+                _sys.stderr.write(f"[reader] Image found at index {last_img_idx}/{len(messages)-1} ({msgs_after} msgs after), attempting copy...\n")
+                _sys.stderr.flush()
+                img_path = self._try_copy_chat_image(win, image_save_dir, msgs_after_image=msgs_after)
+                if img_path:
+                    messages[last_img_idx].image_path = img_path
+
         except Exception as e:
             import sys as _sys
             _sys.stderr.write(f"[reader] Error in read_room_by_title: {type(e).__name__}: {e}\n")

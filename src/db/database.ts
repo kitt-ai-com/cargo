@@ -164,7 +164,7 @@ export class Database {
          JOIN messages m ON po.message_id = m.id
          JOIN chat_rooms cr ON m.chat_room_id = cr.id
          WHERE po.status = ?
-         ORDER BY po.id DESC`
+         ORDER BY po.created_at DESC`
       )
       .all(status);
   }
